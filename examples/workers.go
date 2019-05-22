@@ -17,15 +17,17 @@ const (
 //          ↑ ↑____________|  |          |  |  ↑         |
 //          |_________________|__________|  |  |------|  ↓
 //                            |-------------|-----> [Failed]
-
 func NewWorkerSM() sam.StateMachine {
-	workerSM := sam.NewStateMachine()
-	_ = workerSM.AddTransitions(WStateDisabled, WStateEnabled)
-	_ = workerSM.AddTransitions(WStateEnabled, WStateInitialized, WStateFailed, WStateDisabled)
-	_ = workerSM.AddTransitions(WStateInitialized, WStateRun, WStateFailed, WStateDisabled)
-	_ = workerSM.AddTransitions(WStateRun, WStateStopped, WStateFailed)
-	_ = workerSM.AddTransitions(WStateStopped, WStateRun)
-	_ = workerSM.AddTransitions(WStateFailed, WStateInitialized, WStateDisabled)
-	workerSM.SetState(WStateDisabled)
-	return workerSM
+	workerSM, err := sam.NewStateMachine().
+		AddTransitions(WStateDisabled, WStateEnabled).
+		AddTransitions(WStateEnabled, WStateInitialized, WStateFailed, WStateDisabled).
+		AddTransitions(WStateInitialized, WStateRun, WStateFailed, WStateDisabled).
+		AddTransitions(WStateRun, WStateStopped, WStateFailed).
+		AddTransitions(WStateStopped, WStateRun).
+		AddTransitions(WStateFailed, WStateInitialized, WStateDisabled).
+		Finalize(WStateDisabled)
+	if err != nil || workerSM == nil {
+		panic("Init failed:" + err.Error())
+	}
+	return workerSM.Clone()
 }

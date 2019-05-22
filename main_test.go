@@ -57,35 +57,35 @@ func TestStateMachine_AddTransition(t *testing.T) {
 	from := State("from")
 	to := State("to")
 
-	err := sm.AddTransition(from, from)
+	err := sm.
+		AddTransition(from, from).
+		AddTransition(from, to).Error()
 	assert.Error(t, err)
 	assert.Equal(t, invalidTransition(from, from).Error(), err.Error())
 
-	err = sm.AddTransition(from, to)
-	assert.NoError(t, err)
 
 	state := sm.getState(from)
 	assert.Equal(t, from, state.name)
-	assert.True(t, state.exist)
+	assert.False(t, state.exist)
 	assert.NotNil(t, state.from)
 	assert.NotNil(t, state.to)
 	_, ok := state.to[to]
-	assert.True(t, ok)
+	assert.False(t, ok)
 
 	state = sm.getState(to)
 	assert.Equal(t, to, state.name)
-	assert.True(t, state.exist)
+	assert.False(t, state.exist)
 	assert.NotNil(t, state.from)
 	assert.NotNil(t, state.to)
 	_, ok = state.from[from]
-	assert.True(t, ok)
+	assert.False(t, ok)
 }
 
 func TestStateMachine_AddTransitions(t *testing.T) {
 	sm := NewStateMachine()
 	from := State("from")
 	tos := []State{"to_1", "to_2", "to_3"}
-	err := sm.AddTransitions(from, tos...)
+	err := sm.AddTransitions(from, tos...).Error()
 	assert.NoError(t, err)
 
 	state := sm.getState(from)
@@ -113,53 +113,54 @@ func TestStateMachine_DoTransition(t *testing.T) {
 	sm := NewStateMachine()
 	from := State("from")
 	tos := []State{"to_1", "to_2", "to_3"}
-	err := sm.AddTransitions(from, tos...)
+	err := sm.AddTransitions(from, tos...).SetState(from)
 	assert.NoError(t, err)
-	sm.SetState(from)
 
-	err = sm.DoTransition(State("universe"))
+	err = sm.GoTo(State("universe"))
 	assert.Error(t, err)
 	assert.Equal(t, stateNotFound(State("universe")).Error(), err.Error())
 	assert.Equal(t, from, sm.State())
 
-	err = sm.DoTransition(from)
+	err = sm.GoTo(from)
 	assert.NoError(t, err)
 	assert.Equal(t, from, sm.State())
 
 	clone := sm.Clone()
 	{
-		err = clone.DoTransition(tos[1])
+		err = clone.GoTo(tos[1])
 		assert.NoError(t, err)
 		assert.Equal(t, tos[1], clone.State())
 	}
 
-	err = sm.AddTransitions(tos[0], tos[2])
-	assert.NoError(t, err)
-	err = sm.AddTransitions(tos[1], tos[0], tos[2])
+	err = sm.
+		AddTransitions(tos[0], tos[2]).
+		AddTransitions(tos[1], tos[0], tos[2]).
+		SetState(from)
+
 	assert.NoError(t, err)
 
 	{
 		clone = sm.Clone()
-		err = clone.DoTransition(tos[0])
+		err = clone.GoTo(tos[0])
 		assert.NoError(t, err)
 		assert.Equal(t, tos[0], clone.State())
 
-		err = clone.DoTransition(tos[2])
+		err = clone.GoTo(tos[2])
 		assert.NoError(t, err)
 		assert.Equal(t, tos[2], clone.State())
 	}
 
-	err = sm.DoTransition(tos[1])
+	err = sm.GoTo(tos[1])
 	assert.NoError(t, err)
 	assert.Equal(t, tos[1], sm.State())
 
 	clone = sm.Clone()
-	err = clone.DoTransition(tos[0])
+	err = clone.GoTo(tos[0])
 	assert.NoError(t, err)
 	assert.Equal(t, tos[0], clone.State())
 
 	clone = sm.Clone()
-	err = clone.DoTransition(tos[2])
+	err = clone.GoTo(tos[2])
 	assert.NoError(t, err)
 	assert.Equal(t, tos[2], clone.State())
 }
@@ -169,27 +170,21 @@ func TestStateMachine_GoBack(t *testing.T) {
 	from := State("from")
 	tos := []State{"to_1", "to_2", "to_3"}
 
-	err := sm.AddTransitions(from, tos[0])
+	err := sm.
+		AddTransitions(from, tos[0]).
+		AddTransitions(tos[0], tos[1]).
+		SetState(from)
 	assert.NoError(t, err)
-
-	err = sm.AddTransitions(tos[0], tos[1])
-	assert.NoError(t, err)
-
-	err = sm.GoBack()
-	assert.Error(t, err)
-	assert.Equal(t, stateNotFound(State("")).Error(), err.Error())
-
-	sm.SetState(from)
 
 	err = sm.GoBack()
 	assert.Error(t, err)
 	assert.Equal(t, invalidTransition(from, State("")).Error(), err.Error())
 
-	err = sm.DoTransition(tos[0])
+	err = sm.GoTo(tos[0])
 	assert.NoError(t, err)
 	assert.Equal(t, tos[0], sm.State())
 
-	err = sm.DoTransition(tos[1])
+	err = sm.GoTo(tos[1])
 	assert.NoError(t, err)
 	assert.Equal(t, tos[1], sm.State())
 

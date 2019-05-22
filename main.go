@@ -1,6 +1,8 @@
 package sam
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type State string
 
@@ -20,7 +22,7 @@ var stateNotFound = func(name State) error {
 	return fmt.Errorf("state not found: %v", name)
 }
 
-type Hook func(from, to State) (bool, error)
+type Hook func(from, to State) error
 
 type HookList struct {
 	before      []Hook
@@ -36,11 +38,40 @@ func (HookList) New() HookList {
 		beforeState: map[State]Hook{},
 		afterState:  map[State]Hook{},
 	}
+}
 
+func (hl *HookList) Execute(from, to State) (err error) {
+	for i, hook := range hl.after {
+		if err = hook(from, to); err != nil {
+			return fmt.Errorf("after hook #%d failed; err: %v", i, err)
+		}
+	}
+
+	hook, ok := hl.afterState[from]
+	if ok {
+		if err = hook(from, to); err != nil {
+			return fmt.Errorf("after hook for [%s] failed; err: %v", from, err)
+		}
+	}
+
+	for i, hook := range hl.before {
+		if err = hook(from, to); err != nil {
+			return fmt.Errorf("before hook #%d failed; err: %v", i, err)
+		}
+	}
+
+	hook, ok = hl.beforeState[to]
+	if ok {
+		if err = hook(from, to); err != nil {
+			return fmt.Errorf("before hook for [%s] failed; err: %v", to, err)
+		}
+	}
+	return
 }
 
 type StateMachine struct {
 	current State
+	error   error
 	states  map[State]stateObj
 	hooks   HookList
 }
@@ -57,21 +88,35 @@ func (StateMachine) New() StateMachine {
 	}
 }
 
-func (sm StateMachine) Clone() StateMachine {
-	return sm
+func (sm *StateMachine) Clone() StateMachine {
+	return *sm
 }
 
 func (sm *StateMachine) State() State {
 	return sm.current
 }
 
-func (sm *StateMachine) SetState(state State) {
-	stateObj := sm.getState(state)
-	stateObj.exist = true
-	stateObj.prev = sm.current
-	sm.states[state] = stateObj
+func (sm *StateMachine) SetState(state State) error {
+	if sm.error != nil {
+		return sm.error
+	}
 
+	stateObj := sm.getState(state)
+	stateObj.prev = sm.current
+
+	sm.setState(stateObj)
 	sm.current = stateObj.name
+
+	return sm.error
+}
+
+func (sm *StateMachine) Error() error {
+	return sm.error
+}
+
+func (sm *StateMachine) Finalize(state State) (*StateMachine, error) {
+	err := sm.SetState(state)
+	return sm, err
 }
 
 func (sm *StateMachine) getState(name State) stateObj {
@@ -87,53 +132,96 @@ func (sm *StateMachine) getState(name State) stateObj {
 	return state
 }
 
-func (sm *StateMachine) AddTransitions(from State, to ...State) error {
-	for _, name := range to {
-		err := sm.AddTransition(from, name)
-		if err != nil {
-			return err
-		}
-
-	}
-	return nil
+func (sm *StateMachine) setState(state stateObj) {
+	state.exist = true
+	sm.states[state.name] = state
 }
 
-func (sm *StateMachine) AddTransition(from, to State) error {
+func (sm *StateMachine) AddAfterAllHook(hook Hook) *StateMachine {
+	sm.hooks.after = append(sm.hooks.after, hook)
+	return sm
+}
+
+func (sm *StateMachine) SetAfterHook(state State, hook Hook) *StateMachine {
+	sm.hooks.afterState[state] = hook
+	return sm
+}
+
+func (sm *StateMachine) AddBeforeAllHook(hook Hook) *StateMachine {
+	sm.hooks.before = append(sm.hooks.before, hook)
+	return sm
+}
+
+func (sm *StateMachine) SetBeforeHook(state State, hook Hook) *StateMachine {
+	sm.hooks.beforeState[state] = hook
+	return sm
+}
+
+func (sm *StateMachine) RegisterState(state State, before, after Hook) *StateMachine {
+	stateObj := sm.getState(state)
+	sm.setState(stateObj)
+
+	sm.hooks.beforeState[state] = before
+	sm.hooks.afterState[state] = after
+
+	return sm
+}
+
+func (sm *StateMachine) AddTransitions(from State, to ...State) *StateMachine {
+	for _, name := range to {
+		sm.AddTransition(from, name)
+		if sm.Error() != nil {
+			return sm
+		}
+	}
+	return sm
+}
+
+func (sm *StateMachine) AddTransition(from, to State) *StateMachine {
+	if sm.error != nil {
+		return sm
+	}
+
 	if from == to {
-		return invalidTransition(from, to)
+		sm.error = invalidTransition(from, to)
+		return sm
 	}
 
 	fromState := sm.getState(from)
-	fromState.exist = true
 	fromState.to[to] = struct{}{}
-	sm.states[from] = fromState
+	sm.setState(fromState)
 
 	toState := sm.getState(to)
-	toState.exist = true
 	toState.from[from] = struct{}{}
-	sm.states[to] = toState
+	sm.setState(toState)
 
-	return nil
+	return sm
 }
 
-func (sm *StateMachine) DoTransition(name State) error {
-	newState, ok := sm.states[name]
+func (sm *StateMachine) GoTo(toState State) error {
+	newState, ok := sm.states[toState]
 	if !ok {
-		return stateNotFound(name)
+		return stateNotFound(toState)
 	}
-	if sm.current == name {
+	if sm.current == toState {
 		return nil
 	}
 
 	state := sm.states[sm.current]
-	_, ok = state.to[name]
+	_, ok = state.to[toState]
 	if !ok {
-		return invalidTransition(sm.current, name)
+		return invalidTransition(sm.current, toState)
+	}
+
+	err := sm.hooks.Execute(sm.current, toState)
+	if err != nil {
+		return err
 	}
 
 	newState.prev = sm.current
-	sm.states[name] = newState
-	sm.current = name
+	sm.states[toState] = newState
+	sm.current = toState
+
 	return nil
 }
 
