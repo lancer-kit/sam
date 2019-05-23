@@ -22,53 +22,6 @@ var stateNotFound = func(name State) error {
 	return fmt.Errorf("state not found: %v", name)
 }
 
-type Hook func(from, to State) error
-
-type HookList struct {
-	before      []Hook
-	after       []Hook
-	beforeState map[State]Hook
-	afterState  map[State]Hook
-}
-
-func (HookList) New() HookList {
-	return HookList{
-		before:      []Hook{},
-		after:       []Hook{},
-		beforeState: map[State]Hook{},
-		afterState:  map[State]Hook{},
-	}
-}
-
-func (hl *HookList) Execute(from, to State) (err error) {
-	for i, hook := range hl.after {
-		if err = hook(from, to); err != nil {
-			return fmt.Errorf("after hook #%d failed; err: %v", i, err)
-		}
-	}
-
-	hook, ok := hl.afterState[from]
-	if ok {
-		if err = hook(from, to); err != nil {
-			return fmt.Errorf("after hook for [%s] failed; err: %v", from, err)
-		}
-	}
-
-	for i, hook := range hl.before {
-		if err = hook(from, to); err != nil {
-			return fmt.Errorf("before hook #%d failed; err: %v", i, err)
-		}
-	}
-
-	hook, ok = hl.beforeState[to]
-	if ok {
-		if err = hook(from, to); err != nil {
-			return fmt.Errorf("before hook for [%s] failed; err: %v", to, err)
-		}
-	}
-	return
-}
-
 type StateMachine struct {
 	current State
 	error   error
@@ -239,6 +192,11 @@ func (sm *StateMachine) GoBack() error {
 	prev := sm.getState(current.prev)
 	if !prev.exist {
 		return stateNotFound(current.prev)
+	}
+
+	err := sm.hooks.ExecuteRollback(sm.current, prev.name)
+	if err != nil {
+		return err
 	}
 
 	sm.current = prev.name
