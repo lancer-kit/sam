@@ -1,6 +1,6 @@
 package examples
 
-import "github.com/sheb-gregor/sam"
+import "github.com/lancer-kit/sam"
 
 const (
 	WStateDisabled    sam.State = "Disabled"
