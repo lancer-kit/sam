@@ -4,8 +4,19 @@
 
 You can define state diagram by adding *Transitions* and add transition hooks.
 
+## Usage
 
-## Example without hooks
+Add to project using `go get`
+
+```shell
+
+go get github.com/lancer-kit/sam
+
+```
+
+## Examples
+
+- Without hooks
 
 ```go
 package main
